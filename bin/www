@@ -1,0 +1,192 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var app = require('../app');
+var debug = require('debug')('sentinelserver2:server');
+var http = require('http');
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+global.streams = {};
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+
+var ss = require('socket.io-stream');
+
+var connectionManager = {
+  registry:{},
+  device_token:{},
+  getConnection:function(token){return this.registry[token]?this.registry[token]:this.createNewConnection(token)},
+  createNewConnection:function(token){this.registry[token]={peers:[],app:undefined}; return this.getConnection(token)},
+  addPeer:function(token,socket){this.getConnection(token).peers.push(socket);},
+  setApp:function(token,socket){this.getConnection(token).app = socket; this.mapIdWithToken(token,socket.id)},
+  setStream:function(token,stream){this.getConnection(token).stream = stream;},
+  getTokenBySocketID:function(id){return this.device_token[id]},
+  mapIdWithToken:function(token,id){this.device_token[id] = token}
+}
+global.connectionManager = connectionManager;
+
+var io = require('socket.io')(server,{  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+    allowedHeaders: ["content-type"]
+  },
+  // ...Or the old `allowRequest` function.
+  allowRequest: function(req, callback) {
+    callback(null, true);
+}});
+
+io.sockets.on('connection', function (socket) {
+  console.log("new connection",socket.id)
+    socket.on("appinit", (data)=>{
+          connectionManager.setApp(data.token,socket)  
+          console.log(connectionManager.getConnection(data.token),"")        
+    });
+
+   ss(socket).on('screen-broadcast', function(stream, data) {
+    console.log(connectionManager.getTokenBySocketID(socket.id),"asd")
+      connectionManager.setStream(connectionManager.getTokenBySocketID(socket.id), stream)
+   });
+
+    socket.on("message",function(data){
+      let connection = connectionManager.getConnection(data.token)
+      let peers = connectionManager.getConnection(data.token).peers
+
+      if(peers.includes(socket) && connection.app){
+        connection.app.emit("message",data);
+      }else
+      if(connection.app && connection.app.id == socket.id && peers.length > 0)
+        peers.forEach(sck => {
+          console.log("message from",socket.id,"to",sck.id)
+            sck.emit("message",data)
+      })
+      else if(connection.app && connection.app.id == socket.id)
+       console.log("No peers found for this app") 
+       else 
+       console.log("No host set ") 
+
+    })
+
+   socket.on("init",data=>{
+      console.log(connectionManager.getConnection(data.token),data.token)
+      connectionManager.addPeer(data.token,socket)
+      console.log(connectionManager.getConnection(data.token),data.token)
+
+      console.log("user inited")
+   })
+});
+
+// io.of('/sentinel').on('connection', function(socket) {
+
+
+//   socket.on("message",(data)=>{
+//     device_token[socket] = data.token
+//     console.log("inited")
+//   })
+  
+//   ss(socket).on('screen-broadcast', function(stream, data) {
+//     token_users[device_token[socket]].forEach(client => {
+//           ss(client).emit("screen_sharing",stream,data)
+//       });
+//   });
+
+// });
+
+// io.sockets.on('connection', function (socket) {
+//   socket.on('message', function (data) {
+//     socket.emit('news', { hello: 'world' });
+//   });
+
+//   socket.on('another-message', function (data) {
+//     socket.emit('not-news', { hello: 'world' });
+//   });
+// });
+
+// io.of('/user').on('connection', function(socket) {
+//   socket.on("init",data=>{
+//     token_users[data.token] = socket
+//   })
+    
+// });
+
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}

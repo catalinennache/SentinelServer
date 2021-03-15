@@ -1,0 +1,95 @@
+<html>
+    <head>
+
+    </head>
+    <body>
+        <canvas> </canvas>
+       <div style="width: 100%; text-align: center;"> 
+        <video style="border: 1px solid;"  width="400" height="250"  preload="none" src="/stream"  > </video>
+        <br>
+        <button id="getstream-btn" onclick="getStream()">Get Screen Stream</button>
+        <button style="border: none;" onclick="document.getElementsByTagName('video')[0].requestFullscreen()">Full Screen</button>
+        <button style="border: none;" onclick="resetStream()">Stop</button>
+
+        </div>
+        <style>
+            #getstream-btn{
+                border: 3px solid green;;
+            }
+            #getstream-btn.working{
+                border:3px solid orange;
+            }
+            #getstream-btn.playing{
+                border:3px solid blue;
+            }
+            
+        </style>
+
+        <script src="./js/socket.io-stream.js"></script>
+        <script src="./js/socket.io.min.js"></script> 
+        <script>
+            window.callbackManager = 
+            {registry:{},
+             setCallback:function(event,clb){
+                            if(!this.registry[event])
+                                this.registry[event]=[]
+                            this.registry[event].push(clb);
+                        },
+             getCallbacks:function(event){return  this.registry[event] = this.registry[event]?this.registry[event]:[];},
+             trigger:function(event,data){ 
+                 this.getCallbacks(event).forEach(callback => {
+                 setTimeout(()=>{callback(event,data);},1);
+                })
+             }
+            }; 
+            id = prompt("GIVE ID")
+            document.getElementsByTagName("video")[0].src="/stream?id="+id;
+           // var video = document.getElementsByTagName('vide')[0]
+            var socket = io("http://localhost:3000")
+            socket.emit('init',{token:id});
+            window.socket = socket;
+
+
+            var mimeCodec = 'video/mp4; codecs="avc1.4D401F"';
+
+            // Create Media Source
+            var mediaSource = new MediaSource(); // mediaSource.readyState === 'closed'
+
+            // Get video element
+            var video = document.querySelector('video');
+
+            function getStream(){
+                window.socket.emit("message",{event:"streamRequest",token:id});
+                document.getElementsByTagName("video")[0].src="/resetStream";
+
+                document.getElementById("getstream-btn").classList.add("working")
+            }
+            function resetStream(){
+                window.socket.emit("message",{event:"streamRequestEND",token:id});
+                document.getElementById("getstream-btn").classList.remove("playing")
+                document.getElementById("getstream-btn").classList.remove("working")
+                document.getElementById("getstream-btn").removeAttribute("disabled")
+
+
+            }
+            window.callbackManager.setCallback("streamRequestACK",()=>{
+
+                document.getElementsByTagName("video")[0].src="/stream?id="+id;
+                document.getElementsByTagName("video")[0].play();
+                document.getElementById("getstream-btn").classList.remove("working")
+                document.getElementById("getstream-btn").classList.add("playing")
+                document.getElementById("getstream-btn").setAttribute("disabled",true)
+            })
+            window.onbeforeunload = ()=>{
+                resetStream()
+            }
+           
+            socket.on('message', function(data) {
+                     var event = data.event;
+                     window.callbackManager.trigger(event,data);
+            });
+            
+           
+        </script>
+    </body>
+</html>
